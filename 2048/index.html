@@ -53,11 +53,13 @@ button:disabled{opacity:.45;cursor:default}
 .ov div{display:flex;gap:8px}
 @keyframes fade{from{opacity:0}}
 p.tip{margin:0;font-size:14px;text-align:center}
+.who{font-size:12px;text-align:right;margin:-4px 0 6px;opacity:.8}.who a{color:inherit}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header><h1>2048</h1><div class="scores"><div class="sc" id="scBox"><small>Pontos</small><b id="score">0</b></div><div class="sc"><small>Recorde</small><b id="best">0</b></div></div></header>
+<div class="who" id="who"><span id="pl"></span> <a href="#" id="chg">(trocar)</a> · <span id="cs"></span></div>
 <div class="bar"><button id="undo" disabled>Desfazer</button><button id="new">Novo jogo</button></div>
 <div class="board" id="board"><div class="ov" id="ov"><h2 id="ovt"></h2><div><button id="cont">Continuar</button><button id="retry">Tentar de novo</button></div></div></div>
 <p class="tip">Deslize ou use as setas / WASD para juntar os números e chegar ao <b>2048</b>!</p>
@@ -124,7 +126,7 @@ function load(g,cls){clearTiles();for(var r=0;r<N;r++)for(var c=0;c<N;c++)if(g[r
 function snapshot(){return {grid:gridOf(),score:score,won:won,keepGoing:keepGoing};}
 function save(){try{localStorage.setItem(KEY,JSON.stringify({s:snapshot(),prev:prev,over:over}));}catch(e){}}
 function updScore(add){
-  $score.textContent=score;if(score>best){best=score;localStorage.setItem(BKEY,best);}$best.textContent=best;
+  $score.textContent=score;if(score>best){best=score;localStorage.setItem(BKEY,best);cloudQueue();}$best.textContent=best;
   if(add){var p=document.createElement('div');p.className='plus';p.textContent='+'+add;document.getElementById('scBox').appendChild(p);setTimeout(function(){p.remove();},650);}
 }
 function overlay(kind){
@@ -160,7 +162,7 @@ function doMove(dir){
   });
   score+=res.gained;updScore(res.gained);addRandom();$undo.disabled=false;
   if(won&&!keepGoing&&before.won===false)setTimeout(function(){overlay('win');},300);
-  else if(!canMove(gridOf())){over=true;setTimeout(function(){overlay('over');},300);}
+  else if(!canMove(gridOf())){over=true;cloudSync();setTimeout(function(){overlay('over');},300);}
   save();
 }
 function undo(){
@@ -196,6 +198,31 @@ try{
   }else newGame();
 }catch(e){newGame();}
 $best.textContent=best;
+// ---- Cloud sync (Supabase) ----
+var SB='https://ruptpntxibkeoangvzuv.supabase.co',SK='sb_publishable_LgiuiiUtFsbIxfFM1H0lNQ_GGP3rQ_Y',PKEY='g2048-player',QKEY='g2048-pending',HD={apikey:SK,Authorization:'Bearer '+SK,'Content-Type':'application/json'};
+var $pl=document.getElementById('pl'),$cs=document.getElementById('cs'),cT=null;
+function player(){var p='';try{p=(localStorage.getItem(PKEY)||'').trim().toLowerCase();}catch(e){}return p||'diego';}
+function showPl(){$pl.textContent='Jogador: '+player();}
+function cst(t){$cs.textContent=t;}
+function setBest(v){v=+v||0;if(v>best){best=v;try{localStorage.setItem(BKEY,best);}catch(e){}}$best.textContent=best;}
+function cloudSync(){
+  clearTimeout(cT);cT=null;try{localStorage.setItem(QKEY,'1');}catch(e){}
+  try{fetch(SB+'/rest/v1/rpc/salvar_recorde',{method:'POST',headers:HD,keepalive:true,body:JSON.stringify({p_jogador:player(),p_jogo:'2048',p_pontos:best})})
+  .then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(v){setBest(v);try{localStorage.removeItem(QKEY);}catch(e){}cst('☁️ salvo');})
+  .catch(function(){cst('☁️ offline');});}catch(e){cst('☁️ offline');}
+}
+function cloudQueue(){try{localStorage.setItem(QKEY,'1');}catch(e){}clearTimeout(cT);cT=setTimeout(cloudSync,2000);}
+function cloudLoad(){
+  try{fetch(SB+'/rest/v1/recordes?jogador=eq.'+encodeURIComponent(player())+'&jogo=eq.2048&select=pontos',{headers:HD})
+  .then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(a){var c=a&&a[0]?+a[0].pontos||0:0;setBest(c);
+    var pend=false;try{pend=!!localStorage.getItem(QKEY);}catch(e){}
+    if(pend||best>c)cloudSync();else cst('☁️ salvo');})
+  .catch(function(){cst('☁️ offline');});}catch(e){cst('☁️ offline');}
+}
+document.getElementById('chg').onclick=function(e){e.preventDefault();var n=prompt('Nome do jogador:',player());if(n==null)return;n=n.trim().toLowerCase();if(!n)return;
+  try{localStorage.setItem(PKEY,n);}catch(x){}showPl();cloudLoad();};
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden'){var p=false;try{p=!!localStorage.getItem(QKEY);}catch(e){}if(p||cT)cloudSync();}});
+showPl();cloudLoad();
 // SW: register only if sw.js exists
 if('serviceWorker' in navigator&&location.protocol!=='file:'){
   window.addEventListener('load',function(){
